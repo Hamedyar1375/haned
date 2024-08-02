@@ -1,3 +1,4 @@
+
 import telebot
 import mysql.connector
 import datetime
@@ -129,7 +130,7 @@ def handle_buttons(message):
         GROUP BY admins.username
         """
         results = execute_query(query)
-        results = [(row[0], row[1] if row[1] is not None else 0.0) for row in results]
+        results = [(row[0], float(row[1]) if row[1] is not None else 0.0) for row in results]
         save_query_result_to_db(results)
         response = "Admin Usage Based on Creation/Reset:\n" + "\n".join([f"{row[0]}: {row[1]:.2f} GB" for row in results])
         bot.send_message(chat_id, response)
@@ -143,13 +144,13 @@ def handle_buttons(message):
         GROUP BY admins.username
         """
         current_results = execute_query(query)
-        current_results = [(row[0], float(row[1] if row[1] is not None else 0.0)) for row in current_results]
+        current_results = [(row[0], float(row[1]) if row[1] is not None else 0.0) for row in current_results]
         saved_results = get_saved_query_result()
 
         response_lines = []
         for username, current_usage in current_results:
             previous_usage = saved_results.get(username, 0.0)
-            delta_usage = current_usage - previous_usage
+            delta_usage = float(current_usage) - float(previous_usage)
             response_lines.append(f"{username}: {delta_usage:.2f} GB")
         
         response = "Admin Usage Based on Consumption:\n" + "\n".join(response_lines)
