@@ -1,0 +1,158 @@
+import telebot
+import mysql.connector
+import datetime
+import logging
+
+# Constants (placeholders)
+ALLOWED_CHAT_IDS = [123456789]  # Replace with your allowed chat IDs
+
+# Logging configuration
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Initialize the Telegram Bot
+TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'  # Replace with your Telegram Bot token
+bot = telebot.TeleBot(TOKEN)
+
+# Database configuration
+db_config = {
+    'user': 'root',
+    'password': 'password',
+    'host': '127.0.0.1',
+    'database': 'marzban'
+}
+
+# Database interaction functions
+def execute_query(query):
+    connection = mysql.connector.connect(**db_config)
+    cursor = connection.cursor()
+    cursor.execute(query)
+    results = cursor.fetchall()
+    cursor.close()
+    connection.close()
+    return results
+
+def save_query_result_to_db(query_result):
+    connection = mysql.connector.connect(**db_config)
+    cursor = connection.cursor()
+    cursor.execute("DELETE FROM robot")
+    insert_query = "INSERT INTO robot (username, used_traffic) VALUES (%s, %s)"
+    cursor.executemany(insert_query, query_result)
+    connection.commit()
+    cursor.close()
+    connection.close()
+
+def update_query_result_in_db(query_result):
+    connection = mysql.connector.connect(**db_config)
+    cursor = connection.cursor()
+    update_query = "REPLACE INTO robot (username, used_traffic) VALUES (%s, %s)"
+    cursor.executemany(update_query, query_result)
+    connection.commit()
+    cursor.close()
+    connection.close()
+
+def get_saved_query_result():
+    connection = mysql.connector.connect(**db_config)
+    cursor = connection.cursor()
+    cursor.execute("SELECT username, used_traffic FROM robot")
+    results = cursor.fetchall()
+    cursor.close()
+    connection.close()
+    return {row[0]: row[1] for row in results}
+
+# Handlers for /create_user command and buttons
+@bot.message_handler(commands=['create_user'])
+def create_user(message):
+    chat_id = message.chat.id
+    if chat_id not in ALLOWED_CHAT_IDS:
+        bot.send_message(chat_id, "You are not authorized to use this bot.")
+        return
+
+    bot.send_message(chat_id, "Please enter username for the new user:")
+
+    @bot.message_handler(func=lambda m: True)
+    def process_username_step(message):
+        username = message.text.strip()
+        bot.send_message(chat_id, "Please enter data limit (in GB) for the new user:")
+
+        @bot.message_handler(func=lambda m: True)
+        def process_data_limit_step(message):
+            try:
+                data_limit_gb = float(message.text.strip())
+                bot.send_message(chat_id, "Please enter duration (in days) for the new user:")
+
+                @bot.message_handler(func=lambda m: True)
+                def process_days_step(message):
+                    try:
+                        days = int(message.text.strip())
+                        # Assuming there is a function to create user in your system
+                        create_user_in_system(username, data_limit_gb, days)
+                        bot.send_message(chat_id, f"User {username} created successfully!")
+                    except ValueError:
+                        bot.send_message(chat_id, "Invalid input. Please enter a valid number of days.")
+
+                bot.register_next_step_handler(message, process_days_step)
+
+            except ValueError:
+                bot.send_message(chat_id, "Invalid input. Please enter a valid data limit (in GB).")
+
+        bot.register_next_step_handler(message, process_data_limit_step)
+
+    bot.register_next_step_handler(message, process_username_step)
+
+# Handlers for new buttons
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    chat_id = message.chat.id
+    if chat_id not in ALLOWED_CHAT_IDS:
+        bot.send_message(chat_id, "You are not authorized to use this bot.")
+        return
+
+    markup = telebot.types.ReplyKeyboardMarkup(row_width=2)
+    btn1 = telebot.types.KeyboardButton('Admin Usage Based on Creation/Reset')
+    btn2 = telebot.types.KeyboardButton('Admin Usage Based on Consumption')
+    markup.add(btn1, btn2)
+    bot.send_message(chat_id, "Choose an option:", reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text in ['Admin Usage Based on Creation/Reset', 'Admin Usage Based on Consumption'])
+def handle_buttons(message):
+    chat_id = message.chat.id
+    if chat_id not in ALLOWED_CHAT_IDS:
+        bot.send_message(chat_id, "You are not authorized to use this bot.")
+        return
+
+    if message.text == 'Admin Usage Based on Creation/Reset':
+        query = """
+        SELECT admins.username, (SUM(users.used_traffic) + IFNULL(SUM(user_usage_logs.used_traffic_at_reset), 0)) / 1073741824 AS used_traffic
+        FROM admins 
+        LEFT JOIN users ON users.admin_id = admins.id 
+        LEFT JOIN user_usage_logs ON user_usage_logs.user_id = users.id
+        GROUP BY admins.username
+        """
+        results = execute_query(query)
+        save_query_result_to_db(results)
+        response = "Admin Usage Based on Creation/Reset:\n" + "\n".join([f"{row[0]}: {row[1]:.2f} GB" for row in results])
+        bot.send_message(chat_id, response)
+
+    elif message.text == 'Admin Usage Based on Consumption':
+        query = """
+        SELECT admins.username, (SUM(users.used_traffic) + IFNULL(SUM(user_usage_logs.used_traffic_at_reset), 0)) / 1073741824 AS used_traffic
+        FROM admins 
+        LEFT JOIN users ON users.admin_id = admins.id 
+        LEFT JOIN user_usage_logs ON user_usage_logs.user_id = users.id
+        GROUP BY admins.username
+        """
+        current_results = execute_query(query)
+        saved_results = get_saved_query_result()
+
+        response_lines = []
+        for username, current_usage in current_results:
+            previous_usage = saved_results.get(username, 0)
+            delta_usage = current_usage - previous_usage
+            response_lines.append(f"{username}: {delta_usage:.2f} GB")
+        
+        response = "Admin Usage Based on Consumption:\n" + "\n".join(response_lines)
+        bot.send_message(chat_id, response)
+        update_query_result_in_db(current_results)
+
+# Start the bot
+bot.polling()
