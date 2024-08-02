@@ -1,7 +1,5 @@
-
 import telebot
 import mysql.connector
-import datetime
 import logging
 
 # Constants (placeholders)
@@ -35,9 +33,10 @@ def execute_query(query):
 def save_query_result_to_db(query_result):
     connection = mysql.connector.connect(**db_config)
     cursor = connection.cursor()
+    # Clear the table before saving new results
     cursor.execute("DELETE FROM robot")
-    insert_query = "INSERT INTO robot (username, used_traffic) VALUES (%s, %s)"
-    cursor.executemany(insert_query, query_result)
+    insert_query = "INSERT INTO robot (username, previous_usage, current_usage) VALUES (%s, %s, %s)"
+    cursor.executemany(insert_query, [(row[0], 0, row[1]) for row in query_result])
     connection.commit()
     cursor.close()
     connection.close()
@@ -45,8 +44,16 @@ def save_query_result_to_db(query_result):
 def update_query_result_in_db(query_result):
     connection = mysql.connector.connect(**db_config)
     cursor = connection.cursor()
-    update_query = "REPLACE INTO robot (username, used_traffic) VALUES (%s, %s)"
-    cursor.executemany(update_query, query_result)
+    update_query = "REPLACE INTO robot (username, previous_usage, current_usage) VALUES (%s, %s, %s)"
+    for row in query_result:
+        username, current_usage = row
+        cursor.execute("SELECT current_usage FROM robot WHERE username = %s", (username,))
+        previous_usage = cursor.fetchone()
+        if previous_usage:
+            previous_usage = previous_usage[0]
+        else:
+            previous_usage = 0
+        cursor.execute(update_query, (username, previous_usage, current_usage))
     connection.commit()
     cursor.close()
     connection.close()
@@ -54,11 +61,11 @@ def update_query_result_in_db(query_result):
 def get_saved_query_result():
     connection = mysql.connector.connect(**db_config)
     cursor = connection.cursor()
-    cursor.execute("SELECT username, used_traffic FROM robot")
+    cursor.execute("SELECT username, previous_usage, current_usage FROM robot")
     results = cursor.fetchall()
     cursor.close()
     connection.close()
-    return {row[0]: float(row[1]) for row in results}
+    return {row[0]: (float(row[1]), float(row[2])) for row in results}
 
 # Handlers for /create_user command and buttons
 @bot.message_handler(commands=['create_user'])
@@ -149,10 +156,12 @@ def handle_buttons(message):
 
         response_lines = []
         for username, current_usage in current_results:
-            previous_usage = saved_results.get(username, 0.0)
-            delta_usage = float(current_usage) - float(previous_usage)
+            previous_usage, saved_current_usage = saved_results.get(username, (0.0, 0.0))
+            delta_usage = current_usage - saved_current_usage
+            if delta_usage < 0:
+                delta_usage = 0.0  # Prevent negative values
             response_lines.append(f"{username}: {delta_usage:.2f} GB")
-        
+
         response = "Admin Usage Based on Consumption:\n" + "\n".join(response_lines)
         bot.send_message(chat_id, response)
         update_query_result_in_db(current_results)
