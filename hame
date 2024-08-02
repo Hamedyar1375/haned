@@ -3,19 +3,19 @@ import mysql.connector
 import logging
 
 # Constants (placeholders)
-ALLOWED_CHAT_IDS = [123456789]  # Replace with your allowed chat IDs
+ALLOWED_CHAT_IDS = [540134390]  # Replace with your allowed chat IDs
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Initialize the Telegram Bot
-TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'  # Replace with your Telegram Bot token
+TOKEN = '7218353692:AAHjQkE7pOTz-oemqnvlDcfUH6Mz4YtTN0k'  # Replace with your Telegram Bot token
 bot = telebot.TeleBot(TOKEN)
 
 # Database configuration
 db_config = {
     'user': 'root',
-    'password': 'password',
+    'password': 'hamed1375',
     'host': '127.0.0.1',
     'database': 'marzban'
 }
