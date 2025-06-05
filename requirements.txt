@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy
+PyMySQL
+pydantic[email]
+python-jose[cryptography]
+passlib[bcrypt]
+requests # For Marzban API client
+cryptography # Already a sub-dependency of python-jose, but good to have explicitly for Fernet if not already listed
